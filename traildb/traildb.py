@@ -53,8 +53,8 @@ api(lib.tdb_max_timestamp, [tdb], c_uint64)
 
 #api(lib.tdb_split, [tdb, c_uint, c_char_p, c_uint64], c_int)
 
-api(lib.tdb_set_filter, [tdb, POINTER(c_uint32), c_uint32], c_int)
-api(lib.tdb_get_filter, [tdb, POINTER(c_uint32)], POINTER(c_uint32))
+api(lib.tdb_set_filter, [tdb, POINTER(c_uint64), c_uint64], c_int)
+api(lib.tdb_get_filter, [tdb, POINTER(c_uint64)], POINTER(c_uint64))
 
 api(lib.tdb_decode_trail,
     [tdb, c_uint64, POINTER(tdb_item), c_uint64, POINTER(c_uint64), c_int],
@@ -248,7 +248,7 @@ class TrailDB(object):
                 i += 1
                 while i < num.value and buf[i]:
                     field = self.fields[buf[i] & 255]
-                    values[field] = value(buf[i] & 255, buf[i] >> 8)
+                    values[field] = value(buf[i])
                     i += 1
                 i += 1
                 yield tstamp, values
@@ -381,11 +381,14 @@ class TrailDB(object):
                     field = item & 255
                     field_str = self.fields[field]
                     val = item >> 8
-                    value = lib.tdb_get_value(self._db, field, val)
-                    clause.append({'op': 'notequal' if is_negative else 'equal', 'field' : field_str, 'value': value})
+                    value_size = c_uint64()
+                    value = lib.tdb_get_value(self._db, field, val, value_size)
+                    clause.append({'op': 'notequal' if is_negative else 'equal',
+                                   'field' : field_str,
+                                   'value': value[0:value_size.value]})
             return clause
 
-        filter_len = c_uint32(0)
+        filter_len = c_uint64(0)
         filter_arr = lib.tdb_get_filter(self._db, byref(filter_len))
         q = []
         i = 0
