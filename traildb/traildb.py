@@ -4,11 +4,10 @@ from collections import namedtuple, defaultdict
 from collections import Mapping
 from ctypes import c_char, c_char_p, c_ubyte, c_int, c_void_p
 from ctypes import c_uint, c_uint8, c_uint32, c_uint64
-from ctypes import CDLL, CFUNCTYPE, POINTER, string_at, byref, cast
+from ctypes import CDLL, CFUNCTYPE, POINTER, pointer, string_at, byref, cast
 from datetime import datetime
 
-cd = os.path.dirname(os.path.abspath(__file__))
-lib = CDLL(os.path.join(cd, 'libtraildb.so'))
+lib = CDLL('/usr/local/lib/libtraildb.so')
 
 def api(fun, args, res=None):
     fun.argtypes = args
@@ -20,9 +19,11 @@ tdb_field   = c_uint32
 tdb_val     = c_uint64
 tdb_item    = c_uint64
 
-#api(lib.tdb_cons_open, [c_char_p, POINTER(c_char), c_uint32], tdb_cons)
+api(lib.tdb_cons_open, [tdb_cons, c_char_p, POINTER(c_char_p), c_uint64], c_int)
 api(lib.tdb_cons_close, [tdb_cons])
-#api(lib.tdb_cons_add, [tdb_cons, POINTER(c_ubyte), c_uint32, POINTER(c_char)], c_int)
+api(lib.tdb_cons_add,
+    [tdb_cons, POINTER(c_ubyte), c_uint64, POINTER(c_char_p), POINTER(c_uint64)],
+    c_int)
 api(lib.tdb_cons_append, [tdb_cons, tdb], c_int)
 api(lib.tdb_cons_finalize, [tdb_cons, c_uint64], c_int)
 
@@ -33,7 +34,6 @@ api(lib.tdb_lexicon_size, [tdb, tdb_field], c_int)
 
 api(lib.tdb_get_field, [tdb, c_char_p], c_uint)
 api(lib.tdb_get_field_name, [tdb, tdb_field], c_char_p)
-#api(lib.tdb_field_has_overflow_vals, [tdb, tdb_field], c_int)
 
 api(lib.tdb_get_item, [tdb, tdb_field, c_char_p, c_uint64], tdb_item)
 api(lib.tdb_get_value, [tdb, tdb_field, tdb_val, POINTER(c_uint64)], c_char_p)
@@ -106,19 +106,26 @@ class TrailDBConstructor(object):
         if not path:
             raise TrailDBError("Path is required")
         n = len(ofields)
-        self._cons = cons = lib.tdb_cons_new(path, nullterm(ofields, n), n)
+
+        ofield_names = (c_char_p * n)(*[name + '\x00' for name in ofields])
+        self._cons = lib.tdb_cons_init()
+        if lib.tdb_cons_open(self._cons, path, cast(ofield_names, POINTER(c_char_p)), n) != 0:
+            raise TrailDBError("Cannot open constructor")
+
         self.path = path
         self.ofields = ofields
 
     def __del__(self):
         if hasattr(self, '_cons'):
-            lib.tdb_cons_free(self._cons)
+            lib.tdb_cons_close(self._cons)
 
     def add(self, cookie, time, values=()):
         if isinstance(time, datetime):
             time = int(time.strftime('%s'))
         n = len(self.ofields)
-        f = lib.tdb_cons_add(self._cons, rawcookie(cookie), time, nullterm(values, n))
+        value_array = (c_char_p * n)(*values)
+        value_lengths = (c_uint64 * n)(*[len(v) for v in values])
+        f = lib.tdb_cons_add(self._cons, rawcookie(cookie), time, value_array, value_lengths)
         if f:
             raise TrailDBError("Too many values: %s" % values[f])
 
@@ -138,9 +145,9 @@ class TrailDBConstructor(object):
 class TrailDB(object):
     def __init__(self, path):
         self._db = db = lib.tdb_init()
-        res = lib.tdb_open(self._db, path)
-        if res != 0:
+        if lib.tdb_open(self._db, path) != 0:
             raise TrailDBError("Could not open %s" % path)
+
         self.num_trails = lib.tdb_num_trails(db)
         self.num_events = lib.tdb_num_events(db)
         self.num_fields = lib.tdb_num_fields(db)
