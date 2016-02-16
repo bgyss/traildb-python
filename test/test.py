@@ -59,6 +59,31 @@ from traildb import TrailDB, TrailDBConstructor
 #         print db.fold(fold_fn, [])
 
 class TestCons(unittest.TestCase):
+    def test_cursor(self):
+        cookie = '12345678123456781234567812345678'
+        cons = TrailDBConstructor('test.tdb', ['field1', 'field2'])
+        cons.add(cookie, 1, ['a', '1'])
+        cons.add(cookie, 2, ['b', '2'])
+        cons.add(cookie, 3, ['c', '3'])
+        cons.add(cookie, 4, ['d', '4'])
+        cons.add(cookie, 5, ['e', '5'])
+        tdb = cons.finalize()
+
+        trail = tdb.trail(tdb.cookie_id(cookie))
+
+        j = 1
+        for event in trail:
+            self.assertEqual(j, int(event.field2))
+            j += 1
+        self.assertEqual(6, j)
+
+        # Iterator is empty now
+        self.assertEqual([], list(trail))
+
+        field1_values = [e.field1 for e in tdb.trail(tdb.cookie_id(cookie))]
+        self.assertEqual(['a', 'b', 'c', 'd', 'e'], field1_values)
+
+
     def test_cons(self):
         cookie = '12345678123456781234567812345678'
         cons = TrailDBConstructor('test.tdb', ['field1', 'field2'])
@@ -81,8 +106,7 @@ class TestCons(unittest.TestCase):
         with self.assertRaises(IndexError):
             tdb['00000000000000000000000000000000']
 
-        trail = crumbs[0][1]
-        self.assertEqual(2, len(trail))
+        trail = list(crumbs[0][1])
 
         self.assertEqual(123, trail[0].time)
         self.assertEqual('a', trail[0].field1)
@@ -111,6 +135,7 @@ class TestCons(unittest.TestCase):
 
         self.assertEqual(2, tdb.num_events)
         cookie, trail = list(tdb.crumbs())[0]
+        trail = list(trail)
         self.assertEqual([123, 124], [e.time for e in trail])
         self.assertEqual(['foobarbaz', 'barquuxmoo'], [e.field1 for e in trail])
 
