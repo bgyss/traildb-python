@@ -124,7 +124,7 @@ class TrailDBConstructor(object):
         if hasattr(self, '_cons'):
             lib.tdb_cons_close(self._cons)
 
-    def add(self, cookie, time, values=()):
+    def add(self, cookie, time, values):
         if isinstance(time, datetime):
             time = int(time.strftime('%s'))
         n = len(self.ofields)
@@ -150,10 +150,11 @@ class TrailDBConstructor(object):
 
 
 class TrailDBCursor(object):
-    def __init__(self, cursor, cls, valuefun):
+    def __init__(self, cursor, cls, valuefun, parsetime):
         self.cursor = cursor
         self.cls = cls
         self.valuefun = valuefun
+        self.parsetime = parsetime
 
     def __del__(self):
         if self.cursor:
@@ -175,26 +176,32 @@ class TrailDBCursor(object):
             values.append(self.valuefun(tdb_item_field(items[j]),
                                         tdb_item_val(items[j])))
 
-        return self.cls(event.contents.timestamp, *values)
+        timestamp = event.contents.timestamp
+        if self.parsetime:
+            timestamp = datetime.utcfromtimestamp(event.contents.timestamp)
+
+        return self.cls(timestamp, *values)
 
 
 class TrailDB(object):
     def __init__(self, path):
+        #if path.endswith('.tdb'):
+        #    raise TrailDBError("The path to open should *not* include '.tdb' suffix.")
+
         self._db = db = lib.tdb_init()
-        if lib.tdb_open(self._db, path) != 0:
-            raise TrailDBError("Could not open %s" % path)
+        res = lib.tdb_open(self._db, path)
+        if res != 0:
+            raise TrailDBError("Could not open %s, error code %d" % (path, res))
 
         self.num_trails = lib.tdb_num_trails(db)
         self.num_events = lib.tdb_num_events(db)
         self.num_fields = lib.tdb_num_fields(db)
         self.fields = [lib.tdb_get_field_name(db, i) for i in xrange(self.num_fields)]
         self._evcls = namedtuple('event', self.fields, rename=True)
-        self._cursor = None
 
     def __del__(self):
-        if self._cursor:
-            lib.tdb_cursor_free(self._cursor)
-        lib.tdb_close(self._db)
+        if hasattr(self, '_db'):
+            lib.tdb_close(self._db)
 
     def __contains__(self, cookieish):
         try:
@@ -208,7 +215,6 @@ class TrailDB(object):
             return self.trail(self.cookie_id(cookieish))
         return self.trail(cookieish)
 
-
     def __len__(self):
         return self.num_trails
 
@@ -216,17 +222,12 @@ class TrailDB(object):
         for i in xrange(len(self)):
             yield self.cookie(i), self.trail(i, **kwds)
 
-
-    def trail(self, i):
-        if self._cursor:
-            raise TrailDBError("Cursor already created")
-
+    def trail(self, i, parsetime = False):
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
 
-        return TrailDBCursor(cursor, self._evcls, self.value)
-
+        return TrailDBCursor(cursor, self._evcls, self.value, parsetime)
 
     def field(self, fieldish):
         if isinstance(fieldish, basestring):
@@ -235,13 +236,13 @@ class TrailDB(object):
 
     def lexicon(self, fieldish):
         field = self.field(fieldish)
-        return [self.value(field, i) for i in xrange(self.lexicon_size(field))]
+        return [self.value(field, i) for i in xrange(1, self.lexicon_size(field))]
 
     def lexicon_size(self, fieldish):
         field = self.field(fieldish)
         value = lib.tdb_lexicon_size(self._db, field)
-        if not value:
-            raise TrailDBError(lib.tdb_error(self._db))
+        if value == 0:
+            raise TrailDBError("Invalid field index")
         return value
 
     def val(self, fieldish, value):
@@ -256,7 +257,7 @@ class TrailDB(object):
         value_size = c_uint64()
         value = lib.tdb_get_value(self._db, field, val, value_size)
         if value is None:
-            raise TrailDBError(lib.tdb_error(self._db))
+            raise TrailDBError("Error reading value, error: %s" % lib.tdb_error(self._db))
         return value[0:value_size.value]
 
     def cookie(self, id, raw=False):
@@ -274,25 +275,18 @@ class TrailDB(object):
             return cookie_id
         raise IndexError("Cookie '%s' not found" % cookie)
 
-    def has_cookie_index(self):
-        return True if lib.tdb_has_cookie_index(self._db) else False
-
-    def has_overflow_vals(self, fieldish):
-        field = self.field(fieldish)
-        return lib.tdb_field_has_overflow_vals(self._db, field) != 0
-
-    def time_range(self, ptime=False):
-        tmin = lib.tdb_min_timestamp(self._db)
-        tmax = lib.tdb_max_timestamp(self._db)
-        if ptime:
+    def time_range(self, parsetime=False):
+        tmin = self.min_timestamp()
+        tmax = self.max_timestamp()
+        if parsetime:
             return datetime.utcfromtimestamp(tmin), datetime.utcfromtimestamp(tmax)
         return tmin, tmax
 
-    def split(self, num_parts, fmt='a.%02d.tdb', flags=0):
-        ret = lib.tdb_split(self._db, num_parts, fmt, flags)
-        if ret:
-            raise TrailDBError("Could not split into %d parts" % num_parts)
-        return [TrailDB(fmt % n) for n in xrange(num_parts)]
+    def min_timestamp(self):
+        return lib.tdb_min_timestamp(self._db)
+
+    def max_timestamp(self):
+        return lib.tdb_max_timestamp(self._db)
 
     def _parse_filter(self, filter_expr):
         # filter_expr syntax in CNF:

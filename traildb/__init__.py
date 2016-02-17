@@ -1,2 +1,1 @@
-from .traildb import TrailDBError, TrailDBConstructor, TrailDB
-
+from .traildb import TrailDBError, TrailDBConstructor, TrailDB, TrailDBCursor
