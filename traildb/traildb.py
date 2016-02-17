@@ -29,7 +29,6 @@ class tdb_event(Structure):
                 ("items", tdb_item * 0)]
 
 
-
 api(lib.tdb_cons_open, [tdb_cons, c_char_p, POINTER(c_char_p), c_uint64], tdb_error)
 api(lib.tdb_cons_close, [tdb_cons])
 api(lib.tdb_cons_add,
@@ -41,9 +40,9 @@ api(lib.tdb_cons_finalize, [tdb_cons, c_uint64], tdb_error)
 api(lib.tdb_open, [tdb, c_char_p], tdb_error)
 api(lib.tdb_close, [tdb])
 
-api(lib.tdb_lexicon_size, [tdb, tdb_field], c_int)
+api(lib.tdb_lexicon_size, [tdb, tdb_field], tdb_error)
 
-api(lib.tdb_get_field, [tdb, c_char_p], c_uint)
+api(lib.tdb_get_field, [tdb, c_char_p], tdb_error)
 api(lib.tdb_get_field_name, [tdb, tdb_field], c_char_p)
 
 api(lib.tdb_get_item, [tdb, tdb_field, c_char_p, c_uint64], tdb_item)
@@ -53,12 +52,15 @@ api(lib.tdb_get_item_value, [tdb, tdb_item], c_char_p)
 api(lib.tdb_get_uuid, [tdb, c_uint64], POINTER(c_ubyte))
 api(lib.tdb_get_trail_id, [tdb, POINTER(c_ubyte)], c_uint64)
 
+api(lib.tdb_error_str, [tdb_error], c_char_p)
 
 api(lib.tdb_num_trails, [tdb], c_uint64)
 api(lib.tdb_num_events, [tdb], c_uint64)
 api(lib.tdb_num_fields, [tdb], c_uint64)
 api(lib.tdb_min_timestamp, [tdb], c_uint64)
 api(lib.tdb_max_timestamp, [tdb], c_uint64)
+
+api(lib.tdb_version, [tdb], c_uint64)
 
 api(lib.tdb_cursor_new, [tdb], tdb_cursor)
 api(lib.tdb_cursor_free, [tdb])
@@ -110,8 +112,9 @@ class TrailDBConstructor(object):
         n = len(ofields)
 
         ofield_names = (c_char_p * n)(*[name + '\x00' for name in ofields])
+        ofield_names_p = cast(ofield_names, POINTER(c_char_p))
         self._cons = lib.tdb_cons_init()
-        if lib.tdb_cons_open(self._cons, path, cast(ofield_names, POINTER(c_char_p)), n) != 0:
+        if lib.tdb_cons_open(self._cons, path, ofield_names_p, n) != 0:
             raise TrailDBError("Cannot open constructor")
 
         self.path = path
@@ -127,7 +130,8 @@ class TrailDBConstructor(object):
         n = len(self.ofields)
         value_array = (c_char_p * n)(*values)
         value_lengths = (c_uint64 * n)(*[len(v) for v in values])
-        f = lib.tdb_cons_add(self._cons, rawcookie(cookie), time, value_array, value_lengths)
+        f = lib.tdb_cons_add(self._cons, rawcookie(cookie), time, value_array,
+                             value_lengths)
         if f:
             raise TrailDBError("Too many values: %s" % values[f])
 
@@ -152,7 +156,8 @@ class TrailDBCursor(object):
         self.valuefun = valuefun
 
     def __del__(self):
-        lib.tdb_cursor_free(self.cursor)
+        if self.cursor:
+            lib.tdb_cursor_free(self.cursor)
 
     def __iter__(self):
         return self
@@ -184,20 +189,12 @@ class TrailDB(object):
         self.num_fields = lib.tdb_num_fields(db)
         self.fields = [lib.tdb_get_field_name(db, i) for i in xrange(self.num_fields)]
         self._evcls = namedtuple('event', self.fields, rename=True)
-        self._trail_buf_size = 0
-        self._grow_buffer()
-
         self._cursor = None
 
     def __del__(self):
         if self._cursor:
             lib.tdb_cursor_free(self._cursor)
         lib.tdb_close(self._db)
-
-    def _grow_buffer(self, increment=1000000):
-        self._trail_buf_size += increment
-        self._trail_buf = (c_uint64 * self._trail_buf_size)()
-        return self._trail_buf, self._trail_buf_size
 
     def __contains__(self, cookieish):
         try:
@@ -222,11 +219,11 @@ class TrailDB(object):
 
     def trail(self, i):
         if self._cursor:
-            raise Exception("cursor already created")
+            raise TrailDBError("Cursor already created")
 
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
-            raise Exception("foo")
+            raise TrailDBError("Failed to create cursor")
 
         return TrailDBCursor(cursor, self._evcls, self.value)
 
@@ -373,7 +370,3 @@ class TrailDB(object):
             i += 1 + clause_len
 
         return q
-
-
-
-
