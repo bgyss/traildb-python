@@ -65,7 +65,6 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(self.cookie, db.cookie(0))
         self.assertTrue(self.cookie in db)
 
-
     def test_lexicons(self):
         db = TrailDB('testtrail.tdb')
 
@@ -79,7 +78,6 @@ class TestAPI(unittest.TestCase):
         with self.assertRaises(TrailDBError):
             db.lexicon(3) # Out of bounds
 
-
     def test_metadata(self):
         db = TrailDB('testtrail.tdb')
         self.assertEqual(1, db.min_timestamp())
@@ -89,6 +87,22 @@ class TestAPI(unittest.TestCase):
         self.assertEqual((datetime.datetime(1970, 1, 1, 0, 0, 1),
                           datetime.datetime(1970, 1, 1, 0, 0, 3)),
                          db.time_range(parsetime = True))
+
+    def test_decode(self):
+        db = TrailDB('testtrail.tdb')
+        trail = db.trail(0, decode = False)
+        events = list(trail)
+
+        self.assertEqual(1, events[0][0])                       # timestamp
+        self.assertEqual('a', db.decode_value(events[0][1][0])) # field1
+        self.assertEqual('1', db.decode_value(events[0][1][1])) # field2
+
+        self.assertEqual('b', db.decode_value(events[1][1][0])) # field1
+        self.assertEqual('2', db.decode_value(events[1][1][1])) # field2
+
+        self.assertEqual('c', db.decode_value(events[2][1][0])) # field1
+        self.assertEqual('3', db.decode_value(events[2][1][1])) # field2
+
 
 
 class TestCons(unittest.TestCase):
@@ -186,7 +200,6 @@ class TestCons(unittest.TestCase):
         trail = list(trail)
         self.assertEqual([123, 124], [e.time for e in trail])
         self.assertEqual(['foobarbaz', 'barquuxmoo'], [e.field1 for e in trail])
-
 
     def tearDown(self):
         shutil.rmtree('testtrail.tdb', True)

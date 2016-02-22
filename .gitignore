@@ -1,3 +1,5 @@
 *~
 /build/
 *.pyc
+traildb/ctraildb.c
+traildb/ctraildb.so

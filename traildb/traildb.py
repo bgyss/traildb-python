@@ -150,11 +150,12 @@ class TrailDBConstructor(object):
 
 
 class TrailDBCursor(object):
-    def __init__(self, cursor, cls, valuefun, parsetime):
+    def __init__(self, cursor, cls, valuefun, parsetime, decode):
         self.cursor = cursor
         self.cls = cls
         self.valuefun = valuefun
         self.parsetime = parsetime
+        self.decode = decode
 
     def __del__(self):
         if self.cursor:
@@ -170,6 +171,9 @@ class TrailDBCursor(object):
 
         address = addressof(event.contents.items)
         items = (tdb_item*event.contents.num_items).from_address(address)
+
+        if not self.decode:
+            return (event.contents.timestamp, items)
 
         values = []
         for j in range(len(items)):
@@ -196,6 +200,7 @@ class TrailDB(object):
         self.num_trails = lib.tdb_num_trails(db)
         self.num_events = lib.tdb_num_events(db)
         self.num_fields = lib.tdb_num_fields(db)
+        self.version = lib.tdb_version(db)
         self.fields = [lib.tdb_get_field_name(db, i) for i in xrange(self.num_fields)]
         self._evcls = namedtuple('event', self.fields, rename=True)
 
@@ -222,12 +227,13 @@ class TrailDB(object):
         for i in xrange(len(self)):
             yield self.cookie(i), self.trail(i, **kwds)
 
-    def trail(self, i, parsetime = False):
+    def trail(self, i, parsetime = False, decode = True):
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
 
-        return TrailDBCursor(cursor, self._evcls, self.value, parsetime)
+        return TrailDBCursor(cursor, self._evcls, self.value, parsetime,
+                             decode)
 
     def field(self, fieldish):
         if isinstance(fieldish, basestring):
@@ -251,6 +257,9 @@ class TrailDB(object):
         if not item:
             raise TrailDBError("No such value: '%s'" % value)
         return item >> 8
+
+    def decode_value(self, item):
+        return self.value(tdb_item_field(item), tdb_item_val(item))
 
     def value(self, fieldish, val):
         field = self.field(fieldish)
