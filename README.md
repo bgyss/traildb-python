@@ -14,7 +14,9 @@
 >>> tdb = cons.finalize()
 
 >>> for cookie, trail in tdb.crumbs():
-       print cookie, trail
-12345678123456781234567812345678 [event(time=123L, field1='a', field2=''), event(time=124L, field1='b', field2='c')]
+...     for event in trail:
+...         print cookie, event
 
+12345678123456781234567812345678 event(time=123L, field1='a', field2='')
+12345678123456781234567812345678 event(time=124L, field1='b', field2='c')
 ```
