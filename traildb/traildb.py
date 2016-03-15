@@ -33,6 +33,7 @@ class tdb_event(Structure):
                 ("items", tdb_item * 0)]
 
 
+api(lib.tdb_cons_init, [], tdb_cons)
 api(lib.tdb_cons_open, [tdb_cons, c_char_p, POINTER(c_char_p), c_uint64], tdb_error)
 api(lib.tdb_cons_close, [tdb_cons])
 api(lib.tdb_cons_add,
@@ -41,6 +42,7 @@ api(lib.tdb_cons_add,
 api(lib.tdb_cons_append, [tdb_cons, tdb], tdb_error)
 api(lib.tdb_cons_finalize, [tdb_cons, c_uint64], tdb_error)
 
+api(lib.tdb_init, [], tdb)
 api(lib.tdb_open, [tdb, c_char_p], tdb_error)
 api(lib.tdb_close, [tdb])
 
