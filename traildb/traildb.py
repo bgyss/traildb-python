@@ -1,4 +1,5 @@
 import os
+import sys
 
 from collections import namedtuple, defaultdict
 from collections import Mapping
@@ -9,7 +10,10 @@ from ctypes import CDLL, CFUNCTYPE, POINTER, pointer
 from ctypes import byref, cast, string_at, addressof
 from datetime import datetime
 
-lib = CDLL('/usr/local/lib/libtraildb.so')
+if os.name == "posix" and sys.platform == "darwin":
+    lib = CDLL('/usr/local/lib/libtraildb.dylib')
+elif os.name == "posix" and "linux" in sys.platform:
+    lib = CDLL('/usr/local/lib/libtraildb.so')
 
 def api(fun, args, res=None):
     fun.argtypes = args
