@@ -117,10 +117,10 @@ class TrailDBConstructor(object):
             raise TrailDBError("Path is required")
         n = len(ofields)
 
-        ofield_names = (c_char_p * n)(*[name + '\x00' for name in ofields])
-        ofield_names_p = cast(ofield_names, POINTER(c_char_p))
+        ofield_names = (c_char_p * n)(*[name for name in ofields])
+
         self._cons = lib.tdb_cons_init()
-        if lib.tdb_cons_open(self._cons, path, ofield_names_p, n) != 0:
+        if lib.tdb_cons_open(self._cons, path, ofield_names, n) != 0:
             raise TrailDBError("Cannot open constructor")
 
         self.path = path
