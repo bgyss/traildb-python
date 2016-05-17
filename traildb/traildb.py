@@ -11,9 +11,9 @@ from ctypes import byref, cast, string_at, addressof
 from datetime import datetime
 
 if os.name == "posix" and sys.platform == "darwin":
-    lib = CDLL('/usr/local/lib/libtraildb.dylib')
+    lib = CDLL('libtraildb.dylib')
 elif os.name == "posix" and "linux" in sys.platform:
-    lib = CDLL('/usr/local/lib/libtraildb.so')
+    lib = CDLL('libtraildb.so')
 
 def api(fun, args, res=None):
     fun.argtypes = args
