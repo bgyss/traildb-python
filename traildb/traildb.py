@@ -9,6 +9,7 @@ from ctypes import Structure
 from ctypes import CDLL, CFUNCTYPE, POINTER, pointer
 from ctypes import byref, cast, string_at, addressof
 from datetime import datetime
+import time
 
 if os.name == "posix" and sys.platform == "darwin":
     lib = CDLL('libtraildb.dylib')
@@ -53,10 +54,10 @@ api(lib.tdb_get_field_name, [tdb, tdb_field], c_char_p)
 
 api(lib.tdb_get_item, [tdb, tdb_field, c_char_p, c_uint64], tdb_item)
 api(lib.tdb_get_value, [tdb, tdb_field, tdb_val, POINTER(c_uint64)], c_char_p)
-api(lib.tdb_get_item_value, [tdb, tdb_item], c_char_p)
+api(lib.tdb_get_item_value, [tdb, tdb_item, POINTER(c_uint64)], c_char_p)
 
 api(lib.tdb_get_uuid, [tdb, c_uint64], POINTER(c_ubyte))
-api(lib.tdb_get_trail_id, [tdb, POINTER(c_ubyte)], c_uint64)
+api(lib.tdb_get_trail_id, [tdb, POINTER(c_ubyte), POINTER(c_uint64)], tdb_error)
 
 api(lib.tdb_error_str, [tdb_error], c_char_p)
 
@@ -75,15 +76,15 @@ api(lib.tdb_get_trail, [tdb_cursor, c_uint64], tdb_error)
 api(lib.tdb_get_trail_length, [tdb_cursor], c_uint64)
 
 
-def hexcookie(cookie):
-    if isinstance(cookie, basestring):
-        return cookie
-    return string_at(cookie, 16).encode('hex')
+def uuid_hex(uuid):
+    if isinstance(uuid, basestring):
+        return uuid
+    return string_at(uuid, 16).encode('hex')
 
-def rawcookie(cookie):
-    if isinstance(cookie, basestring):
-        return (c_ubyte * 16).from_buffer_copy(cookie.decode('hex'))
-    return cookie
+def uuid_raw(uuid):
+    if isinstance(uuid, basestring):
+        return (c_ubyte * 16).from_buffer_copy(uuid.decode('hex'))
+    return uuid
 
 def nullterm(strs, size):
     return '\x00'.join(strs) + (size - len(strs) + 1) * '\x00'
@@ -130,13 +131,13 @@ class TrailDBConstructor(object):
         if hasattr(self, '_cons'):
             lib.tdb_cons_close(self._cons)
 
-    def add(self, cookie, time, values):
-        if isinstance(time, datetime):
-            time = int(time.strftime('%s'))
+    def add(self, uuid, tstamp, values):
+        if isinstance(tstamp, datetime):
+            tstamp = int(time.mktime(tstamp.timetuple()))
         n = len(self.ofields)
         value_array = (c_char_p * n)(*values)
         value_lengths = (c_uint64 * n)(*[len(v) for v in values])
-        f = lib.tdb_cons_add(self._cons, rawcookie(cookie), time, value_array,
+        f = lib.tdb_cons_add(self._cons, uuid_raw(uuid), tstamp, value_array,
                              value_lengths)
         if f:
             raise TrailDBError("Too many values: %s" % values[f])
@@ -179,21 +180,17 @@ class TrailDBCursor(object):
 
         values = []
         for j in range(len(items)):
-            values.append(self.valuefun(tdb_item_field(items[j]),
-                                        tdb_item_val(items[j])))
+            values.append(self.valuefun(items[j]))
 
         timestamp = event.contents.timestamp
         if self.parsetime:
-            timestamp = datetime.utcfromtimestamp(event.contents.timestamp)
+            timestamp = datetime.fromtimestamp(event.contents.timestamp)
 
         return self.cls(timestamp, *values)
 
 
 class TrailDB(object):
     def __init__(self, path):
-        #if path.endswith('.tdb'):
-        #    raise TrailDBError("The path to open should *not* include '.tdb' suffix.")
-
         self._db = db = lib.tdb_init()
         res = lib.tdb_open(self._db, path)
         if res != 0:
@@ -209,31 +206,34 @@ class TrailDB(object):
         if hasattr(self, '_db'):
             lib.tdb_close(self._db)
 
-    def __contains__(self, cookieish):
+    def __contains__(self, uuidish):
         try:
-            self[cookieish]
+            self[uuidish]
             return True
         except IndexError:
             return False
 
-    def __getitem__(self, cookieish):
-        if isinstance(cookieish, basestring):
-            return self.trail(self.cookie_id(cookieish))
-        return self.trail(cookieish)
+    def __getitem__(self, uuidish):
+        if isinstance(uuidish, basestring):
+            return self.trail(self.get_trail_id(uuidish))
+        return self.trail(uuidsh)
 
     def __len__(self):
         return self.num_trails
 
     def crumbs(self, **kwds):
         for i in xrange(len(self)):
-            yield self.cookie(i), self.trail(i, **kwds)
+            yield self.get_uuid(i), self.trail(i, **kwds)
 
-    def trail(self, i, parsetime = False):
+    def trail(self, i, parsetime=False, rawitems=False):
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
 
-        return TrailDBCursor(cursor, self._evcls, self.value, parsetime)
+        if rawitems:
+            return TrailDBCursor(cursor, self._evcls, lambda x: x, parsetime)
+        else:
+            return TrailDBCursor(cursor, self._evcls, self.get_item_value, parsetime)
 
     def field(self, fieldish):
         if isinstance(fieldish, basestring):
@@ -242,7 +242,7 @@ class TrailDB(object):
 
     def lexicon(self, fieldish):
         field = self.field(fieldish)
-        return [self.value(field, i) for i in xrange(1, self.lexicon_size(field))]
+        return [self.get_value(field, i) for i in xrange(1, self.lexicon_size(field))]
 
     def lexicon_size(self, fieldish):
         field = self.field(fieldish)
@@ -251,35 +251,43 @@ class TrailDB(object):
             raise TrailDBError("Invalid field index")
         return value
 
-    def val(self, fieldish, value):
+    def get_item(self, fieldish, value):
         field = self.field(fieldish)
-        item = lib.tdb_get_item(self._db, field, value)
+        item = lib.tdb_get_item(self._db, field, value, len(value))
         if not item:
             raise TrailDBError("No such value: '%s'" % value)
-        return item >> 8
+        return item
 
-    def value(self, fieldish, val):
-        field = self.field(fieldish)
-        value_size = c_uint64()
-        value = lib.tdb_get_value(self._db, field, val, value_size)
+    def get_item_value(self, item):
+        ptr = pointer(c_uint64())
+        value = lib.tdb_get_item_value(self._db, item, ptr)
         if value is None:
             raise TrailDBError("Error reading value, error: %s" % lib.tdb_error(self._db))
-        return value[0:value_size.value]
+        return value[0:ptr.contents.value]
 
-    def cookie(self, id, raw=False):
-        cookie = lib.tdb_get_uuid(self._db, id)
-        if cookie:
+    def get_value(self, fieldish, val):
+        field = self.field(fieldish)
+        ptr = pointer(c_uint64())
+        value = lib.tdb_get_value(self._db, field, val, ptr)
+        if value is None:
+            raise TrailDBError("Error reading value, error: %s" % lib.tdb_error(self._db))
+        return value[0:ptr.contents.value]
+
+    def get_uuid(self, trail_id, raw=False):
+        uuid = lib.tdb_get_uuid(self._db, trail_id)
+        if uuid:
             if raw:
-                return string_at(cookie, 16)
+                return string_at(uuid, 16)
             else:
-                return hexcookie(cookie)
-        raise IndexError("Cookie index out of range")
+                return uuid_hex(uuid)
+        raise IndexError("Trail ID out of range")
 
-    def cookie_id(self, cookie):
-        cookie_id = lib.tdb_get_trail_id(self._db, rawcookie(cookie))
-        if cookie_id < self.num_trails:
-            return cookie_id
-        raise IndexError("Cookie '%s' not found" % cookie)
+    def get_trail_id(self, uuid):
+        ptr = pointer(c_uint64())
+        ret = lib.tdb_get_trail_id(self._db, uuid_raw(uuid), ptr)
+        if ret:
+            raise IndexError("UUID '%s' not found" % uuid)
+        return ptr.contents.value
 
     def time_range(self, parsetime=False):
         tmin = self.min_timestamp()
