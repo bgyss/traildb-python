@@ -86,9 +86,7 @@ class TestAPI(unittest.TestCase):
         self.assertEqual(3, db.max_timestamp())
         self.assertEqual((1, 3), db.time_range())
 
-        self.assertEqual((datetime.datetime(1970, 1, 1, 0, 0, 1),
-                          datetime.datetime(1970, 1, 1, 0, 0, 3)),
-                         db.time_range(parsetime = True))
+        self.assertEqual((1, 3), db.time_range(parsetime = False))
 
 
 class TestCons(unittest.TestCase):
@@ -136,6 +134,8 @@ class TestCons(unittest.TestCase):
 
         self.assertIsInstance(timestamps[0], datetime.datetime)
         self.assertEqual([time for time, _ in events], timestamps)
+        self.assertEquals(tdb.time_range(True),
+                          (events[0][0], events[-1][0]))
 
 
     def test_cons(self):

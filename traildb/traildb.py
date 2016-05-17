@@ -293,7 +293,7 @@ class TrailDB(object):
         tmin = self.min_timestamp()
         tmax = self.max_timestamp()
         if parsetime:
-            return datetime.utcfromtimestamp(tmin), datetime.utcfromtimestamp(tmax)
+            return datetime.fromtimestamp(tmin), datetime.fromtimestamp(tmax)
         return tmin, tmax
 
     def min_timestamp(self):
