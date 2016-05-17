@@ -95,7 +95,7 @@ def nullterm(strs, size):
 
 def tdb_item_is32(item): return not (item & 128)
 def tdb_item_field32(item): return item & 127
-def tdb_item_val32(item): return (item >> 8) & 2147483647 # UINT32_MAX
+def tdb_item_val32(item): return (item >> 8) & 4294967295L # UINT32_MAX
 
 def tdb_item_field(item):
     if tdb_item_is32(item):
