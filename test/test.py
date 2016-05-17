@@ -17,7 +17,7 @@ class TestAPI(unittest.TestCase):
         cons.finalize()
 
     def tearDown(self):
-        shutil.rmtree('testtrail.tdb', True)
+        os.unlink('testtrail.tdb')
 
     def test_trails(self):
         db = TrailDB('testtrail')
@@ -223,8 +223,11 @@ class TestCons(unittest.TestCase):
         self.assertEqual(['foobarbaz', 'barquuxmoo'], [e.field1 for e in trail])
 
     def tearDown(self):
-        shutil.rmtree('testtrail.tdb', True)
-        shutil.rmtree('testtrail2.tdb', True)
+        try:
+            os.unlink('testtrail.tdb')
+            os.unlink('testtrail2.tdb')
+        except:
+            pass
 
 
 if __name__ == '__main__':
