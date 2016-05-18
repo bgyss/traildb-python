@@ -41,7 +41,7 @@ api(lib.tdb_cons_add,
     [tdb_cons, POINTER(c_ubyte), c_uint64, POINTER(c_char_p), POINTER(c_uint64)],
     tdb_error)
 api(lib.tdb_cons_append, [tdb_cons, tdb], tdb_error)
-api(lib.tdb_cons_finalize, [tdb_cons, c_uint64], tdb_error)
+api(lib.tdb_cons_finalize, [tdb_cons], tdb_error)
 
 api(lib.tdb_init, [], tdb)
 api(lib.tdb_open, [tdb, c_char_p], tdb_error)
@@ -98,22 +98,32 @@ def tdb_item_field32(item): return item & 127
 def tdb_item_val32(item): return (item >> 8) & 4294967295L # UINT32_MAX
 
 def tdb_item_field(item):
+    """Return field-part of an item."""
     if tdb_item_is32(item):
         return tdb_item_field32(item)
     else:
         return (item & 127) | (((item >> 8) & 127) << 7)
 
 def tdb_item_val(item):
+    """Return value-part of an item."""
     if tdb_item_is32(item):
         return tdb_item_val32(item)
     else:
         return item >> 16
 
 class TrailDBError(Exception):
+    """TrailDB error condition."""
     pass
 
 class TrailDBConstructor(object):
+    """Construct a new TrailDB."""
+
     def __init__(self, path, ofields=()):
+        """Initialize a new TrailDB constructor.
+
+        path -- TrailDB output path (without .tdb).
+        ofields -- List of field (names) in this TrailDB.
+        """
         if not path:
             raise TrailDBError("Path is required")
         n = len(ofields)
@@ -132,6 +142,12 @@ class TrailDBConstructor(object):
             lib.tdb_cons_close(self._cons)
 
     def add(self, uuid, tstamp, values):
+        """Add an event in TrailDB.
+
+        uuid -- UUID of this event.
+        tstamp -- Timestamp of this event (datetime or integer).
+        values -- value of each field.
+        """
         if isinstance(tstamp, datetime):
             tstamp = int(time.mktime(tstamp.timetuple()))
         n = len(self.ofields)
@@ -143,20 +159,36 @@ class TrailDBConstructor(object):
             raise TrailDBError("Too many values: %s" % values[f])
 
     def append(self, db):
+        """Merge an existing TrailDB in this TrailDB.
+
+        db -- an existing TrailDB
+        """
         f = lib.tdb_cons_append(self._cons, db._db)
         if f < 0:
             raise TrailDBError("Wrong number of fields: %d" % db.num_fields)
         if f > 0:
             raise TrailDBError("Too many values: %s" % values[f])
 
-    def finalize(self, flags=0):
-        r = lib.tdb_cons_finalize(self._cons, flags)
+    def finalize(self):
+        """Finalize this TrailDB. You cannot add new events in this TrailDB
+        after calling this function.
+
+        Returns a new TrailDB handle.
+        """
+        r = lib.tdb_cons_finalize(self._cons)
         if r:
             raise TrailDBError("Could not finalize (%d)" % r)
         return TrailDB(self.path)
 
 
 class TrailDBCursor(object):
+    """
+    TrailDBCursor iterates over events of a trail.
+
+    Typically this class is not instantiated directly but it is
+    returned by TrailDB.trail().
+    """
+
     def __init__(self, cursor, cls, valuefun, parsetime):
         self.cursor = cursor
         self.cls = cls
@@ -171,6 +203,7 @@ class TrailDBCursor(object):
         return self
 
     def next(self):
+        """Return the next event in the trail."""
         event = lib.tdb_cursor_next(self.cursor)
         if not event:
             raise StopIteration()
@@ -190,7 +223,10 @@ class TrailDBCursor(object):
 
 
 class TrailDB(object):
+    """Query a TrailDB."""
+
     def __init__(self, path):
+        """Open a TrailDB at path."""
         self._db = db = lib.tdb_init()
         res = lib.tdb_open(self._db, path)
         if res != 0:
@@ -207,6 +243,7 @@ class TrailDB(object):
             lib.tdb_close(self._db)
 
     def __contains__(self, uuidish):
+        """Return True if UUID or Trail ID exists in this TrailDB."""
         try:
             self[uuidish]
             return True
@@ -214,18 +251,29 @@ class TrailDB(object):
             return False
 
     def __getitem__(self, uuidish):
+        """Return a cursor for the given UUID or Trail ID."""
         if isinstance(uuidish, basestring):
             return self.trail(self.get_trail_id(uuidish))
         return self.trail(uuidsh)
 
     def __len__(self):
+        """Return the number of trails."""
         return self.num_trails
 
-    def crumbs(self, **kwds):
+    def trails(self, **kwds):
+        """Iterate over all trails in this TrailDB.
+
+        Keyword arguments are passed to trail()."""
         for i in xrange(len(self)):
             yield self.get_uuid(i), self.trail(i, **kwds)
 
     def trail(self, i, parsetime=False, rawitems=False):
+        """Return a cursor over a single trail.
+
+        i -- Trail ID.
+        parsetime=False -- Return datetime objects instead of integer timestamps.
+        rawitems=False -- Return integer items instead of string values.
+        """
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
@@ -236,15 +284,19 @@ class TrailDB(object):
             return TrailDBCursor(cursor, self._evcls, self.get_item_value, parsetime)
 
     def field(self, fieldish):
+        """Return a field ID given a field name."""
         if isinstance(fieldish, basestring):
             return self.fields.index(fieldish)
         return fieldish
 
     def lexicon(self, fieldish):
+        """Return values of the given field ID or field name."""
         field = self.field(fieldish)
         return [self.get_value(field, i) for i in xrange(1, self.lexicon_size(field))]
 
     def lexicon_size(self, fieldish):
+        """Return the number of distinct values in the given
+        field ID or field name."""
         field = self.field(fieldish)
         value = lib.tdb_lexicon_size(self._db, field)
         if value == 0:
@@ -252,6 +304,8 @@ class TrailDB(object):
         return value
 
     def get_item(self, fieldish, value):
+        """Return the item corresponding to a field ID or
+        a field name and a string value."""
         field = self.field(fieldish)
         item = lib.tdb_get_item(self._db, field, value, len(value))
         if not item:
@@ -259,6 +313,7 @@ class TrailDB(object):
         return item
 
     def get_item_value(self, item):
+        """Return the string value corresponding to an item."""
         ptr = pointer(c_uint64())
         value = lib.tdb_get_item_value(self._db, item, ptr)
         if value is None:
@@ -266,6 +321,8 @@ class TrailDB(object):
         return value[0:ptr.contents.value]
 
     def get_value(self, fieldish, val):
+        """Return the string value corresponding to a field ID or
+        a field name and a value ID."""
         field = self.field(fieldish)
         ptr = pointer(c_uint64())
         value = lib.tdb_get_value(self._db, field, val, ptr)
@@ -274,6 +331,7 @@ class TrailDB(object):
         return value[0:ptr.contents.value]
 
     def get_uuid(self, trail_id, raw=False):
+        """Return UUID given a Trail ID."""
         uuid = lib.tdb_get_uuid(self._db, trail_id)
         if uuid:
             if raw:
@@ -283,6 +341,7 @@ class TrailDB(object):
         raise IndexError("Trail ID out of range")
 
     def get_trail_id(self, uuid):
+        """Return Trail ID given a UUID."""
         ptr = pointer(c_uint64())
         ret = lib.tdb_get_trail_id(self._db, uuid_raw(uuid), ptr)
         if ret:
@@ -290,6 +349,10 @@ class TrailDB(object):
         return ptr.contents.value
 
     def time_range(self, parsetime=False):
+        """Return the time range covered by this TrailDB.
+
+        parsetime=False -- Return time range as integers or datetime objects.
+        """
         tmin = self.min_timestamp()
         tmax = self.max_timestamp()
         if parsetime:
@@ -297,8 +360,10 @@ class TrailDB(object):
         return tmin, tmax
 
     def min_timestamp(self):
+        """Return the minimum time stamp of this TrailDB."""
         return lib.tdb_min_timestamp(self._db)
 
     def max_timestamp(self):
+        """Return the maximum time stamp of this TrailDB."""
         return lib.tdb_max_timestamp(self._db)
 
