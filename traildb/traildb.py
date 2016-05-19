@@ -31,7 +31,7 @@ tdb_error   = c_int
 class tdb_event(Structure):
     _fields_ = [("timestamp", c_uint64),
                 ("num_items", c_uint64),
-                ("items", tdb_item * 0)]
+                ("items", POINTER(tdb_item))]
 
 
 api(lib.tdb_cons_init, [], tdb_cons)
@@ -191,9 +191,9 @@ class TrailDBCursor(object):
 
     def __init__(self, cursor, cls, valuefun, parsetime):
         self.cursor = cursor
-        self.cls = cls
         self.valuefun = valuefun
         self.parsetime = parsetime
+        self.cls = cls
 
     def __del__(self):
         if self.cursor:
@@ -211,16 +211,13 @@ class TrailDBCursor(object):
         address = addressof(event.contents.items)
         items = (tdb_item*event.contents.num_items).from_address(address)
 
-        values = []
-        for j in range(len(items)):
-            values.append(self.valuefun(items[j]))
-
         timestamp = event.contents.timestamp
         if self.parsetime:
             timestamp = datetime.fromtimestamp(event.contents.timestamp)
-
-        return self.cls(timestamp, *values)
-
+        if self.valuefun:
+            return self.cls(timestamp, *(self.valuefun(item) for item in items))
+        else:
+            return self.cls(timestamp, *items)
 
 class TrailDB(object):
     """Query a TrailDB."""
@@ -236,7 +233,7 @@ class TrailDB(object):
         self.num_events = lib.tdb_num_events(db)
         self.num_fields = lib.tdb_num_fields(db)
         self.fields = [lib.tdb_get_field_name(db, i) for i in xrange(self.num_fields)]
-        self._evcls = namedtuple('event', self.fields, rename=True)
+        self.event_cls = namedtuple('event', self.fields, rename=True)
         self.uint64_ptr = pointer(c_uint64())
 
     def __del__(self):
@@ -275,17 +272,14 @@ class TrailDB(object):
         parsetime=False -- Return datetime objects instead of integer timestamps.
         rawitems=False -- Return integer items instead of string values.
         """
-        def identity(x):
-            return x
-
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
 
         if rawitems:
-            return TrailDBCursor(cursor, self._evcls, identity, parsetime)
+            return TrailDBCursor(cursor, self.event_cls, None, parsetime)
         else:
-            return TrailDBCursor(cursor, self._evcls, self.get_item_value, parsetime)
+            return TrailDBCursor(cursor, self.event_cls, self.get_item_value, parsetime)
 
     def field(self, fieldish):
         """Return a field ID given a field name."""
