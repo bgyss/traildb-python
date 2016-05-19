@@ -137,6 +137,13 @@ class TestCons(unittest.TestCase):
         self.assertEquals(tdb.time_range(True),
                           (events[0][0], events[-1][0]))
 
+    def test_binarydata(self):
+        binary = '\x00\x01\x02\x00\xff\x00\xff'
+        uuid = '12345678123456781234567812345678'
+        cons = TrailDBConstructor('testtrail', ['field1'])
+        cons.add(uuid, 123, [binary])
+        tdb = cons.finalize()
+        self.assertEqual(list(tdb[0])[0].field1, binary)
 
     def test_cons(self):
         uuid = '12345678123456781234567812345678'
