@@ -189,11 +189,12 @@ class TrailDBCursor(object):
     returned by TrailDB.trail().
     """
 
-    def __init__(self, cursor, cls, valuefun, parsetime):
+    def __init__(self, cursor, cls, valuefun, parsetime, only_timestamp):
         self.cursor = cursor
         self.valuefun = valuefun
         self.parsetime = parsetime
         self.cls = cls
+        self.only_timestamp = only_timestamp
 
     def __del__(self):
         if self.cursor:
@@ -214,7 +215,9 @@ class TrailDBCursor(object):
         timestamp = event.contents.timestamp
         if self.parsetime:
             timestamp = datetime.fromtimestamp(event.contents.timestamp)
-        if self.valuefun:
+        if self.only_timestamp:
+            return timestamp
+        elif self.valuefun:
             return self.cls(timestamp, *(self.valuefun(item) for item in items))
         else:
             return self.cls(timestamp, *items)
@@ -265,21 +268,24 @@ class TrailDB(object):
         for i in xrange(len(self)):
             yield self.get_uuid(i), self.trail(i, **kwds)
 
-    def trail(self, i, parsetime=False, rawitems=False):
+    def trail(self, i, parsetime=False, rawitems=False, only_timestamp=False):
         """Return a cursor over a single trail.
 
         i -- Trail ID.
         parsetime=False -- Return datetime objects instead of integer timestamps.
         rawitems=False -- Return integer items instead of string values.
+        only_timestamp=False -- Return only timestamps, not event objects.
         """
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
 
-        if rawitems:
-            return TrailDBCursor(cursor, self.event_cls, None, parsetime)
-        else:
-            return TrailDBCursor(cursor, self.event_cls, self.get_item_value, parsetime)
+        valuefun = None if rawitems else self.get_item_value
+        return TrailDBCursor(cursor,
+                             self.event_cls,
+                             valuefun,
+                             parsetime,
+                             only_timestamp)
 
     def field(self, fieldish):
         """Return a field ID given a field name."""
