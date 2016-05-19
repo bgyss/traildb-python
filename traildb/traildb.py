@@ -262,7 +262,7 @@ class TrailDB(object):
         """Return a cursor for the given UUID or Trail ID."""
         if isinstance(uuidish, basestring):
             return self.trail(self.get_trail_id(uuidish))
-        return self.trail(uuidsh)
+        return self.trail(uuidish)
 
     def __len__(self):
         """Return the number of trails."""
