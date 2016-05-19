@@ -52,9 +52,9 @@ api(lib.tdb_lexicon_size, [tdb, tdb_field], tdb_error)
 api(lib.tdb_get_field, [tdb, c_char_p], tdb_error)
 api(lib.tdb_get_field_name, [tdb, tdb_field], c_char_p)
 
-api(lib.tdb_get_item, [tdb, tdb_field, c_char_p, c_uint64], tdb_item)
-api(lib.tdb_get_value, [tdb, tdb_field, tdb_val, POINTER(c_uint64)], c_char_p)
-api(lib.tdb_get_item_value, [tdb, tdb_item, POINTER(c_uint64)], c_char_p)
+api(lib.tdb_get_item, [tdb, tdb_field, POINTER(c_char), c_uint64], tdb_item)
+api(lib.tdb_get_value, [tdb, tdb_field, tdb_val, POINTER(c_uint64)], POINTER(c_char))
+api(lib.tdb_get_item_value, [tdb, tdb_item, POINTER(c_uint64)], POINTER(c_char))
 
 api(lib.tdb_get_uuid, [tdb, c_uint64], POINTER(c_ubyte))
 api(lib.tdb_get_trail_id, [tdb, POINTER(c_ubyte), POINTER(c_uint64)], tdb_error)
@@ -237,6 +237,7 @@ class TrailDB(object):
         self.num_fields = lib.tdb_num_fields(db)
         self.fields = [lib.tdb_get_field_name(db, i) for i in xrange(self.num_fields)]
         self._evcls = namedtuple('event', self.fields, rename=True)
+        self.uint64_ptr = pointer(c_uint64())
 
     def __del__(self):
         if hasattr(self, '_db'):
@@ -274,12 +275,15 @@ class TrailDB(object):
         parsetime=False -- Return datetime objects instead of integer timestamps.
         rawitems=False -- Return integer items instead of string values.
         """
+        def identity(x):
+            return x
+
         cursor = lib.tdb_cursor_new(self._db)
         if lib.tdb_get_trail(cursor, i) != 0:
             raise TrailDBError("Failed to create cursor")
 
         if rawitems:
-            return TrailDBCursor(cursor, self._evcls, lambda x: x, parsetime)
+            return TrailDBCursor(cursor, self._evcls, identity, parsetime)
         else:
             return TrailDBCursor(cursor, self._evcls, self.get_item_value, parsetime)
 
@@ -314,21 +318,19 @@ class TrailDB(object):
 
     def get_item_value(self, item):
         """Return the string value corresponding to an item."""
-        ptr = pointer(c_uint64())
-        value = lib.tdb_get_item_value(self._db, item, ptr)
+        value = lib.tdb_get_item_value(self._db, item, self.uint64_ptr)
         if value is None:
             raise TrailDBError("Error reading value, error: %s" % lib.tdb_error(self._db))
-        return value[0:ptr.contents.value]
+        return value[0:self.uint64_ptr.contents.value]
 
     def get_value(self, fieldish, val):
         """Return the string value corresponding to a field ID or
         a field name and a value ID."""
         field = self.field(fieldish)
-        ptr = pointer(c_uint64())
-        value = lib.tdb_get_value(self._db, field, val, ptr)
+        value = lib.tdb_get_value(self._db, field, val, self.uint64_ptr)
         if value is None:
             raise TrailDBError("Error reading value, error: %s" % lib.tdb_error(self._db))
-        return value[0:ptr.contents.value]
+        return value[0:self.uint64_ptr.contents.value]
 
     def get_uuid(self, trail_id, raw=False):
         """Return UUID given a Trail ID."""
@@ -342,11 +344,10 @@ class TrailDB(object):
 
     def get_trail_id(self, uuid):
         """Return Trail ID given a UUID."""
-        ptr = pointer(c_uint64())
-        ret = lib.tdb_get_trail_id(self._db, uuid_raw(uuid), ptr)
+        ret = lib.tdb_get_trail_id(self._db, uuid_raw(uuid), self.uint64_ptr)
         if ret:
             raise IndexError("UUID '%s' not found" % uuid)
-        return ptr.contents.value
+        return self.uint64_ptr.contents.value
 
     def time_range(self, parsetime=False):
         """Return the time range covered by this TrailDB.
