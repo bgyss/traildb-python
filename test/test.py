@@ -71,10 +71,10 @@ class TestAPI(unittest.TestCase):
 
         # First field
         self.assertEqual(4, db.lexicon_size(1))
-        self.assertEqual(['a', 'b', 'c'], db.lexicon(1))
+        self.assertEqual(['a', 'b', 'c'], list(db.lexicon(1)))
 
         # Second field
-        self.assertEqual(['1', '2', '3'], db.lexicon(2))
+        self.assertEqual(['1', '2', '3'], list(db.lexicon(2)))
 
         with self.assertRaises(TrailDBError):
             db.lexicon(3) # Out of bounds
