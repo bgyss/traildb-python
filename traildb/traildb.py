@@ -12,7 +12,11 @@ from datetime import datetime
 import time
 
 if os.name == "posix" and sys.platform == "darwin":
-    lib = CDLL('libtraildb.dylib')
+    try:
+        lib = CDLL('libtraildb.dylib')
+    except:
+        # is there a better way to figure out the path?
+        lib = CDLL('/usr/local/lib/libtraildb.dylib')
 elif os.name == "posix" and "linux" in sys.platform:
     lib = CDLL('libtraildb.so')
 
