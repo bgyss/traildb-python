@@ -13,7 +13,7 @@
 >>> cons.add(cookie, 124, ['b', 'c'])
 >>> tdb = cons.finalize()
 
->>> for cookie, trail in tdb.crumbs():
+>>> for cookie, trail in tdb.trails():
 ...     for event in trail:
 ...         print cookie, event
 
