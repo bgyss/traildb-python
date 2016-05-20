@@ -305,9 +305,9 @@ class TrailDB(object):
         return fieldish
 
     def lexicon(self, fieldish):
-        """Return values of the given field ID or field name."""
+        """Return an iterator over values of the given field ID or field name."""
         field = self.field(fieldish)
-        return [self.get_value(field, i) for i in xrange(1, self.lexicon_size(field))]
+        return (self.get_value(field, i) for i in xrange(1, self.lexicon_size(field)))
 
     def lexicon_size(self, fieldish):
         """Return the number of distinct values in the given
