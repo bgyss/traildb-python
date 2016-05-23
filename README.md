@@ -1,7 +1,16 @@
 # Python bindings for TrailDB
 
-### Adding data to a trail
+### Quick start
 
+First install the [TrailDB library](https://github.com/traildb/traildb). Then
+
+    $ python setup.py install
+
+For detailed instructions, see [Getting Started guide](http://traildb.io/docs/getting_started/).
+
+### Example
+
+See [TrailDB tutorial](http://traildb.io/docs/tutorial) for more information.
 
 ```python
 
